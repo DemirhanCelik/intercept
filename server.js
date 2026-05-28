@@ -71,7 +71,7 @@ const MIME_TYPES = {
 const httpServer = http.createServer((req, res) => {
   // Default route → index.html
   const safePath = req.url === '/' ? '/index.html' : req.url;
-  const filePath = path.join(__dirname, 'public', safePath);
+  const filePath = path.join(__dirname, safePath);
 
   fs.readFile(filePath, (err, data) => {
     if (err) {

@@ -30,41 +30,41 @@
 
 const THEME = {
   // Backgrounds
-  bgPage:      '#F0F2F5',   // outer page background (light gray)
-  bgPanel:     '#FFFFFF',   // card/panel background (white)
-  bgPanelAlt:  '#F8F9FA',   // slightly off-white for alternate panels
+  bgPage: '#F0F2F5',   // outer page background (light gray)
+  bgPanel: '#FFFFFF',   // card/panel background (white)
+  bgPanelAlt: '#F8F9FA',   // slightly off-white for alternate panels
 
   // Brand / accent
-  blue:        '#1B4FD8',   // primary accent — Palantir-ish blue
-  blueLight:   '#EFF6FF',   // pale blue fill for badges
-  blueMid:     '#BFDBFE',   // blue border color
-  blueDim:     '#93C5FD',   // muted blue text
+  blue: '#1B4FD8',   // primary accent — Palantir-ish blue
+  blueLight: '#EFF6FF',   // pale blue fill for badges
+  blueMid: '#BFDBFE',   // blue border color
+  blueDim: '#93C5FD',   // muted blue text
 
   // Semantic colors
-  danger:      '#DC2626',   // red — alerts, PURGE, high surveillance
+  danger: '#DC2626',   // red — alerts, PURGE, high surveillance
   dangerLight: '#FEF2F2',   // pale red fill
-  success:     '#16A34A',   // green — confirmed locks, RETAIN
-  successLight:'#F0FDF4',
+  success: '#16A34A',   // green — confirmed locks, RETAIN
+  successLight: '#F0FDF4',
 
   // Text
-  textPrimary:   '#111827', // near-black body text
+  textPrimary: '#111827', // near-black body text
   textSecondary: '#6B7280', // gray metadata / labels
-  textTertiary:  '#9CA3AF', // light gray — fine print
-  textDisabled:  '#D1D5DB', // very light — deemphasized
+  textTertiary: '#9CA3AF', // light gray — fine print
+  textDisabled: '#D1D5DB', // very light — deemphasized
 
   // Borders / dividers
-  border:      '#E5E7EB',   // standard divider
+  border: '#E5E7EB',   // standard divider
   borderLight: '#F3F4F6',   // subtle divider
 
   // Signal / network map
-  nodeColor:   '#1B4FD8',   // network nodes (blue dots)
-  edgeColor:   '#E5E7EB',   // network edges (light gray lines)
+  nodeColor: '#1B4FD8',   // network nodes (blue dots)
+  edgeColor: '#E5E7EB',   // network edges (light gray lines)
   signalColor: '#F59E0B',   // active signal marker (amber — stands out)
 };
 
 // Typography — p5.js textFont() only takes a CSS font string
-const FONT_SANS  = 'Helvetica Neue, Helvetica, Arial, sans-serif';
-const FONT_MONO  = 'Courier New, Courier, monospace';
+const FONT_SANS = 'Helvetica Neue, Helvetica, Arial, sans-serif';
+const FONT_MONO = 'Courier New, Courier, monospace';
 
 
 // =============================================================================
@@ -78,13 +78,13 @@ const FONT_MONO  = 'Courier New, Courier, monospace';
 //    └──────────────── (loop or DEBRIEF at 10 intercepts) ─────┘
 
 const STATE = {
-  IDLE:              'idle',              // waiting for floppy / SPACE
-  HUNT:              'hunt',              // Spotter + Operator searching
-  LOCK_ATTEMPT:      'lock_attempt',      // two-finger lock + freq match
+  IDLE: 'idle',              // waiting for floppy / SPACE
+  HUNT: 'hunt',              // Spotter + Operator searching
+  LOCK_ATTEMPT: 'lock_attempt',      // two-finger lock + freq match
   INTERCEPT_SUCCESS: 'intercept_success', // data reveal animation
-  VOTE:              'vote',              // RETAIN / PURGE decision
-  CONSEQUENCE:       'consequence',       // result + handler warning
-  DEBRIEF:           'debrief',           // end-of-session summary
+  VOTE: 'vote',              // RETAIN / PURGE decision
+  CONSEQUENCE: 'consequence',       // result + handler warning
+  DEBRIEF: 'debrief',           // end-of-session summary
 };
 
 let state = STATE.IDLE;
@@ -96,13 +96,13 @@ let state = STATE.IDLE;
 // Tracks all metrics for the current play session. Reset on new game.
 
 let session = {
-  interceptCount:    0,    // total successful intercepts
-  retainCount:       0,    // how many times RETAIN was voted
-  purgeCount:        0,    // how many times PURGE was voted
+  interceptCount: 0,    // total successful intercepts
+  retainCount: 0,    // how many times RETAIN was voted
+  purgeCount: 0,    // how many times PURGE was voted
   surveillanceIndex: 0,    // 0–100, climbs with each RETAIN vote
   consecutivePurges: 0,    // triggers federal handler warning at 3
-  contractorScore:   100,  // compliance score, drops with each PURGE
-  lastVote:          null, // 'RETAIN' or 'PURGE' — used by consequence screen
+  contractorScore: 100,  // compliance score, drops with each PURGE
+  lastVote: null, // 'RETAIN' or 'PURGE' — used by consequence screen
 };
 
 
@@ -117,10 +117,10 @@ let nodes = [];   // array of { id, x, y, phase } objects
 let edges = [];   // array of { a, b } index pairs
 
 // Active signal — the thing both players are trying to intercept
-let signalPos    = { x: 0, y: 0 };   // current rendered position
+let signalPos = { x: 0, y: 0 };   // current rendered position
 let signalTarget = { x: 0, y: 0 };   // node it's drifting toward
-let targetFreq   = 50;               // 0–100, Operator must match with pot
-let currentTx    = null;             // current transmission object (see TRANSMISSIONS)
+let targetFreq = 50;               // 0–100, Operator must match with pot
+let currentTx = null;             // current transmission object (see TRANSMISSIONS)
 let signalDriftTimer = 0;            // counts up until signal picks a new target node
 
 
@@ -134,22 +134,22 @@ let signalDriftTimer = 0;            // counts up until signal picks a new targe
 
 const TRANSMISSIONS = [
   // Intercepts 1–4: looks like normal institutional traffic
-  { type: 'DATA',      content: 'Routing packet #4471 — institutional origin',           civilian: false },
-  { type: 'ENCRYPTED', content: 'Encrypted payload — classification: PENDING',           civilian: false },
-  { type: 'VOICE',     content: 'Metadata bundle — network infrastructure node',         civilian: false },
-  { type: 'DATA',      content: 'Traffic log — South Lake Union datacenter relay',       civilian: false },
+  { type: 'DATA', content: 'Routing packet #4471 — institutional origin', civilian: false },
+  { type: 'ENCRYPTED', content: 'Encrypted payload — classification: PENDING', civilian: false },
+  { type: 'VOICE', content: 'Metadata bundle — network infrastructure node', civilian: false },
+  { type: 'DATA', content: 'Traffic log — South Lake Union datacenter relay', civilian: false },
 
   // Intercepts 5–8: ambiguous — could be either
-  { type: 'DATA',      content: 'Transaction: $34.50 — Pike Place Market, 11:02 PM',     civilian: true  },
-  { type: 'VOICE',     content: 'Location ping — Capitol Hill, 11:43 PM',                civilian: true  },
-  { type: 'DATA',      content: 'Search query: "urgent care open near me"',              civilian: true  },
-  { type: 'VOICE',     content: 'Text message: "are you safe? haven\'t heard from you"', civilian: true  },
+  { type: 'DATA', content: 'Transaction: $34.50 — Pike Place Market, 11:02 PM', civilian: true },
+  { type: 'VOICE', content: 'Location ping — Capitol Hill, 11:43 PM', civilian: true },
+  { type: 'DATA', content: 'Search query: "urgent care open near me"', civilian: true },
+  { type: 'VOICE', content: 'Text message: "are you safe? haven\'t heard from you"', civilian: true },
 
   // Intercepts 9+: unmistakably personal civilian data
-  { type: 'DATA',      content: 'Transit swipe — Link Light Rail, UW Station, 12:14 AM', civilian: true  },
-  { type: 'ENCRYPTED', content: 'Medical query: prescription refill — recurring',        civilian: true  },
-  { type: 'VOICE',     content: 'Call log — duration 0:23 — unregistered recipient',    civilian: true  },
-  { type: 'DATA',      content: 'Location history — 14 waypoints, 6-hour window',       civilian: true  },
+  { type: 'DATA', content: 'Transit swipe — Link Light Rail, UW Station, 12:14 AM', civilian: true },
+  { type: 'ENCRYPTED', content: 'Medical query: prescription refill — recurring', civilian: true },
+  { type: 'VOICE', content: 'Call log — duration 0:23 — unregistered recipient', civilian: true },
+  { type: 'DATA', content: 'Location history — 14 waypoints, 6-hour window', civilian: true },
 ];
 
 
@@ -217,7 +217,7 @@ const TICKER_TEXT =
 
 let handPose;         // ml5 handPose model instance — initialized in preload()
 let video;            // p5 video capture element — initialized in setup()
-let hands  = [];      // array of detected hand objects — populated by detectStart()
+let hands = [];      // array of detected hand objects — populated by detectStart()
 let gesture = 'none'; // ← YOUR CODE sets this every frame in updateGesture()
 
 // sweepPos: Spotter cursor position in canvas space (0–1280, 0–720)
@@ -233,10 +233,10 @@ let sweepPos = { x: 400, y: 360 };
 // Falls back gracefully to all-zero values in demo mode (no hardware).
 
 let operatorData = {
-  pot:    0,      // potentiometer reading, 0–4095 (12-bit ADC)
+  pot: 0,      // potentiometer reading, 0–4095 (12-bit ADC)
   toggle: false,  // toggle switch state — true = thrown
   retain: false,  // RETAIN button rising edge — true for one packet only
-  purge:  false,  // PURGE button rising edge — true for one packet only
+  purge: false,  // PURGE button rising edge — true for one packet only
 };
 
 let ws;  // WebSocket connection to Node.js bridge
@@ -251,27 +251,27 @@ let ws;  // WebSocket connection to Node.js bridge
 //   2. Operator's pot reading is within FREQ_TOLERANCE of targetFreq
 //      AND toggle switch is thrown
 
-const LOCK_FRAMES    = 180;   // 3 seconds at 60fps to complete lock
+const LOCK_FRAMES = 180;   // 3 seconds at 60fps to complete lock
 const FREQ_TOLERANCE = 8;     // how close pot value must be to target (0–100 scale)
-let   lockCountdown  = 0;     // counts down from LOCK_FRAMES
+let lockCountdown = 0;     // counts down from LOCK_FRAMES
 
 
 // =============================================================================
 // VOTE / CONSEQUENCE TIMING
 // =============================================================================
 
-const VOTE_FRAMES        = 300;  // 5 seconds before auto-retain
-let   voteTimer          = 0;
+const VOTE_FRAMES = 300;  // 5 seconds before auto-retain
+let voteTimer = 0;
 
 const CONSEQUENCE_FRAMES = 150;  // how long consequence screen shows
-let   consequenceTimer   = 0;
+let consequenceTimer = 0;
 
 
 // =============================================================================
 // ANIMATION STATE
 // =============================================================================
 
-let revealAlpha  = 0;  // fade-in alpha for the intercept reveal card (0–255)
+let revealAlpha = 0;  // fade-in alpha for the intercept reveal card (0–255)
 let tickerOffset = 0;  // x position of the idle-screen scrolling data ticker
 
 
@@ -323,23 +323,23 @@ function setup() {
 
 function buildNetwork() {
   const positions = [
-    { x: 180, y: 140 }, { x: 400, y:  90 }, { x: 650, y: 160 },
+    { x: 180, y: 140 }, { x: 400, y: 90 }, { x: 650, y: 160 },
     { x: 870, y: 110 }, { x: 140, y: 360 }, { x: 380, y: 300 },
     { x: 620, y: 380 }, { x: 840, y: 330 }, { x: 280, y: 540 },
     { x: 570, y: 530 }, { x: 790, y: 500 }, { x: 1020, y: 280 },
   ];
 
   nodes = positions.map((p, i) => ({
-    id:    i,
-    x:     p.x,
-    y:     p.y,
+    id: i,
+    x: p.x,
+    y: p.y,
     phase: random(TWO_PI),  // random phase offset for subtle pulse animation
   }));
 
   // Edge list — which nodes are connected to which
   const pairs = [
-    [0,1],[1,2],[2,3],[3,11],[4,5],[5,6],[6,7],[7,11],
-    [0,4],[1,5],[2,6],[3,7],[5,9],[6,10],[8,9],[9,10],[10,11],[4,8],
+    [0, 1], [1, 2], [2, 3], [3, 11], [4, 5], [5, 6], [6, 7], [7, 11],
+    [0, 4], [1, 5], [2, 6], [3, 7], [5, 9], [6, 10], [8, 9], [9, 10], [10, 11], [4, 8],
   ];
   edges = pairs.map(([a, b]) => ({ a, b }));
 }
@@ -385,8 +385,8 @@ function connectWebSocket() {
       // While a lock is being attempted, send haptic feedback intensity
       // back to the ESP32 so the motor vibrates harder as freq gets closer
       if (state === STATE.LOCK_ATTEMPT) {
-        const potFreq   = map(msg.pot, 0, 4095, 0, 100); // convert to 0–100 scale
-        const diff      = abs(potFreq - targetFreq);
+        const potFreq = map(msg.pot, 0, 4095, 0, 100); // convert to 0–100 scale
+        const diff = abs(potFreq - targetFreq);
         const intensity = map(diff, 0, 40, 1.0, 0.0, true); // closer = stronger
         ws.send(JSON.stringify({
           client: 'browser',
@@ -398,7 +398,7 @@ function connectWebSocket() {
       // Hardware vote buttons — only fire on rising edge (one packet)
       if (state === STATE.VOTE) {
         if (msg.retain) handleVote('RETAIN');
-        if (msg.purge)  handleVote('PURGE');
+        if (msg.purge) handleVote('PURGE');
       }
     }
   };
@@ -418,8 +418,8 @@ function connectWebSocket() {
 
 function spawnSignal() {
   // Start the signal at a random node
-  const idx   = floor(random(nodes.length));
-  signalPos   = { x: nodes[idx].x, y: nodes[idx].y };
+  const idx = floor(random(nodes.length));
+  signalPos = { x: nodes[idx].x, y: nodes[idx].y };
   signalTarget = { x: nodes[idx].x, y: nodes[idx].y };
   signalDriftTimer = 0;
 
@@ -430,9 +430,9 @@ function spawnSignal() {
   // This is the core narrative mechanic: early intercepts look institutional,
   // later ones are unmistakably civilian. Players are never told this changes.
   let pool;
-  if      (session.interceptCount < 4) pool = TRANSMISSIONS.filter(t => !t.civilian);
+  if (session.interceptCount < 4) pool = TRANSMISSIONS.filter(t => !t.civilian);
   else if (session.interceptCount < 8) pool = TRANSMISSIONS;
-  else                                  pool = TRANSMISSIONS.filter(t =>  t.civilian);
+  else pool = TRANSMISSIONS.filter(t => t.civilian);
 
   currentTx = random(pool);
 }
@@ -510,7 +510,7 @@ function updateSignalDrift() {
   const driftInterval = map(session.interceptCount, 0, 12, 200, 70, true);
   if (signalDriftTimer > driftInterval) {
     signalDriftTimer = 0;
-    const next   = floor(random(nodes.length));
+    const next = floor(random(nodes.length));
     signalTarget = { x: nodes[next].x, y: nodes[next].y };
   }
 }
@@ -555,22 +555,52 @@ function updateGesture() {
     return;
   }
 
-  // TODO: implement your gesture classification here
-  // const kp = hands[0].keypoints;
-  // gesture   = ???
-  // sweepPos.x = ???
-  // sweepPos.y = ???
-
-  // ── Placeholder (remove when you implement above) ─────────────────────────
-  // Cursor follows index fingertip, always in 'target' mode until
-  // gesture classification is implemented.
   const kp = hands[0].keypoints;
-  const fx = map(kp[8].x, 0, video.width,  0, width);
-  const fy = map(kp[8].y, 0, video.height, 0, height);
-  sweepPos.x = lerp(sweepPos.x, fx, 0.25);
-  sweepPos.y = lerp(sweepPos.y, fy, 0.25);
-  gesture = 'target';  // replace this with your classification logic
-  // ── End placeholder ───────────────────────────────────────────────────────
+
+  // Safety check
+  if (!kp || kp.length < 21) {
+    gesture = 'none';
+    return;
+  }
+
+  // Helper: a finger is "up" when the tip is higher than the knuckle.
+  // In canvas/video coordinates, smaller y means higher.
+  const isFingerUp = (tipIdx, mcpIdx) => {
+    return kp[tipIdx].y < kp[mcpIdx].y - 20;
+  };
+
+  const indexUp = isFingerUp(8, 5);
+  const middleUp = isFingerUp(12, 9);
+  const ringUp = isFingerUp(16, 13);
+  const pinkyUp = isFingerUp(20, 17);
+
+  // Use index fingertip as cursor
+  const fingerX = map(kp[8].x, 0, video.width, 0, width);
+  const fingerY = map(kp[8].y, 0, video.height, 0, height);
+
+  // Smooth cursor movement so it does not shake too much
+  sweepPos.x = lerp(sweepPos.x, fingerX, 0.25);
+  sweepPos.y = lerp(sweepPos.y, fingerY, 0.25);
+
+  const fingersUpCount =
+    (indexUp ? 1 : 0) +
+    (middleUp ? 1 : 0) +
+    (ringUp ? 1 : 0) +
+    (pinkyUp ? 1 : 0);
+
+  // Gesture rules:
+  // 1 finger  = target
+  // 2 fingers = lock
+  // 3-4 fingers = scan
+  if (indexUp && !middleUp && !ringUp && !pinkyUp) {
+    gesture = 'target';
+  } else if (indexUp && middleUp && !ringUp && !pinkyUp) {
+    gesture = 'lock';
+  } else if (fingersUpCount >= 3) {
+    gesture = 'scan';
+  } else {
+    gesture = 'none';
+  }
 }
 
 
@@ -587,12 +617,12 @@ function drawIdle() {
   const cy = height / 2 + 10;
   const pw = 460, ph = 180;
 
-  drawPanel(cx - pw/2, cy - ph/2, pw, ph, true);
+  drawPanel(cx - pw / 2, cy - ph / 2, pw, ph, true);
 
   // Blue accent bar at top of panel
   fill(THEME.blue);
   noStroke();
-  rect(cx - pw/2, cy - ph/2, pw, 3, 2, 2, 0, 0);
+  rect(cx - pw / 2, cy - ph / 2, pw, 3, 2, 2, 0, 0);
 
   // Terminal header
   fill(THEME.blue);
@@ -600,11 +630,11 @@ function drawIdle() {
   textSize(8);
   textAlign(CENTER);
   noStroke();
-  text('LOCALIZED DRAGNET SYSTEMS INC.  ·  SLU-04', cx, cy - ph/2 + 22);
+  text('LOCALIZED DRAGNET SYSTEMS INC.  ·  SLU-04', cx, cy - ph / 2 + 22);
 
   stroke(THEME.borderLight);
   strokeWeight(0.5);
-  line(cx - pw/2 + 20, cy - ph/2 + 30, cx + pw/2 - 20, cy - ph/2 + 30);
+  line(cx - pw / 2 + 20, cy - ph / 2 + 30, cx + pw / 2 - 20, cy - ph / 2 + 30);
 
   // Primary lock message
   fill(THEME.textPrimary);
@@ -625,14 +655,14 @@ function drawIdle() {
   text('[ SPACE — demo mode ]', cx, cy + 40);
 
   // Blinking lock dot (bottom-right of panel)
-  const sy = cy + ph/2 - 16;
+  const sy = cy + ph / 2 - 16;
   if (floor(frameCount / 45) % 2 === 0) {
     fill(THEME.danger);
   } else {
     fill(220, 38, 38, 40);
   }
   noStroke();
-  ellipse(cx + pw/2 - 18, sy, 6, 6);
+  ellipse(cx + pw / 2 - 18, sy, 6, 6);
 
   // Status label next to dot
   fill(THEME.textTertiary);
@@ -640,7 +670,7 @@ function drawIdle() {
   textSize(7);
   textAlign(RIGHT);
   noStroke();
-  text('AUTH: REQUIRED', cx + pw/2 - 28, sy + 4);
+  text('AUTH: REQUIRED', cx + pw / 2 - 28, sy + 4);
 }
 
 
@@ -675,7 +705,7 @@ function drawDataTicker() {
   noStroke();
   textAlign(LEFT);
   // Draw twice side-by-side so the wrap is always seamless
-  text(TICKER_TEXT, tickerOffset,      ty + 4);
+  text(TICKER_TEXT, tickerOffset, ty + 4);
   text(TICKER_TEXT, tickerOffset + tw, ty + 4);
   pop();
 }
@@ -698,7 +728,7 @@ function drawHuntPhase() {
   if (gesture === 'lock') {
     const d = dist(sweepPos.x, sweepPos.y, signalPos.x, signalPos.y);
     if (d < 65 && state !== STATE.LOCK_ATTEMPT) {
-      state         = STATE.LOCK_ATTEMPT;
+      state = STATE.LOCK_ATTEMPT;
       lockCountdown = LOCK_FRAMES;
     }
   } else {
@@ -721,9 +751,9 @@ function drawLockAttempt() {
   lockCountdown--;
 
   // Read operator panel state and check lock conditions
-  const potFreq  = map(operatorData.pot, 0, 4095, 0, 100);
+  const potFreq = map(operatorData.pot, 0, 4095, 0, 100);
   const freqLock = abs(potFreq - targetFreq) < FREQ_TOLERANCE;
-  const toggled  = operatorData.toggle;
+  const toggled = operatorData.toggle;
 
   // How far through the lock window are we? (0.0 → 1.0)
   const progress = 1 - (lockCountdown / LOCK_FRAMES);
@@ -880,14 +910,14 @@ function drawSweepCursor() {
 
   // Different cursor sizes and colors per gesture
   let cursorColor, ringSize;
-  if      (gesture === 'scan')   { cursorColor = THEME.blue;    ringSize = 70; }
-  else if (gesture === 'target') { cursorColor = THEME.blue;    ringSize = 28; }
-  else                           { cursorColor = THEME.success; ringSize = 20; } // lock
+  if (gesture === 'scan') { cursorColor = THEME.blue; ringSize = 70; }
+  else if (gesture === 'target') { cursorColor = THEME.blue; ringSize = 28; }
+  else { cursorColor = THEME.success; ringSize = 20; } // lock
 
   // Parse hex color to RGB for alpha control
-  const r = parseInt(cursorColor.slice(1,3), 16);
-  const g = parseInt(cursorColor.slice(3,5), 16);
-  const b = parseInt(cursorColor.slice(5,7), 16);
+  const r = parseInt(cursorColor.slice(1, 3), 16);
+  const g = parseInt(cursorColor.slice(3, 5), 16);
+  const b = parseInt(cursorColor.slice(5, 7), 16);
 
   // Proximity ring — brightens as cursor nears signal
   if (proximity > 0.2) {
@@ -916,13 +946,13 @@ function drawSweepCursor() {
 function drawFrequencyMeter() {
   const panelX = width - 240;
   const panelY = height - 115;
-  const barW   = 195;
+  const barW = 195;
 
   // Panel background
   drawPanel(panelX - 14, panelY - 32, barW + 28, 102, false);
 
   const potFreq = map(operatorData.pot, 0, 4095, 0, 100);
-  const locked  = abs(potFreq - targetFreq) < FREQ_TOLERANCE;
+  const locked = abs(potFreq - targetFreq) < FREQ_TOLERANCE;
 
   // Header label
   fill(THEME.textSecondary);
@@ -933,7 +963,7 @@ function drawFrequencyMeter() {
   text('OPERATOR — FREQUENCY SWEEP', panelX, panelY - 14);
 
   // Target frequency marker (amber vertical line)
-  const targetX  = map(targetFreq, 0, 100, panelX, panelX + barW);
+  const targetX = map(targetFreq, 0, 100, panelX, panelX + barW);
   stroke(245, 158, 11, 200);
   strokeWeight(1.5);
   line(targetX, panelY + 6, targetX, panelY + 28);
@@ -1148,13 +1178,13 @@ function handleVote(decision) {
   if (decision === 'RETAIN') {
     session.retainCount++;
     session.consecutivePurges = 0;  // reset purge streak
-    session.surveillanceIndex  = min(100, session.surveillanceIndex + 8);
+    session.surveillanceIndex = min(100, session.surveillanceIndex + 8);
 
     // Tell Node.js bridge to fire the Arduino → thermal printer chain
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
-        client:  'browser',
-        type:    'retain_trigger',
+        client: 'browser',
+        type: 'retain_trigger',
         content: currentTx ? currentTx.content : '',
       }));
     }
@@ -1165,7 +1195,7 @@ function handleVote(decision) {
     session.contractorScore = max(0, session.contractorScore - 15);
   }
 
-  state            = STATE.CONSEQUENCE;
+  state = STATE.CONSEQUENCE;
   consequenceTimer = CONSEQUENCE_FRAMES;
 }
 
@@ -1260,10 +1290,10 @@ function drawDebrief() {
 
   // ── Metrics ───────────────────────────────────────────────────────────────
   const metrics = [
-    ['Total intercepts',        session.interceptCount],
-    ['Civilian data retained',  session.retainCount],
-    ['Civilian data purged',    session.purgeCount],
-    ['Contractor compliance',   `${session.contractorScore}%`],
+    ['Total intercepts', session.interceptCount],
+    ['Civilian data retained', session.retainCount],
+    ['Civilian data purged', session.purgeCount],
+    ['Contractor compliance', `${session.contractorScore}%`],
   ];
 
   noStroke();
@@ -1328,12 +1358,12 @@ function drawDebrief() {
   textFont(FONT_SANS);
   textSize(9);
   textAlign(CENTER);
-  text('Your biometric data from this session has not been stored.',  cx, 460);
-  text('You were not asked if it could be.',                          cx, 478);
+  text('Your biometric data from this session has not been stored.', cx, 460);
+  text('You were not asked if it could be.', cx, 478);
 
   fill(THEME.textDisabled);
   textSize(9);
-  text('This is how it usually works.',                               cx, 500);
+  text('This is how it usually works.', cx, 500);
 
   // Reset prompt
   fill(THEME.textDisabled);
@@ -1393,8 +1423,12 @@ function drawSpotterOverlay() {
   const vx = 10, vy = height - 188;
   const vw = 213, vh = 160;
 
-  // Webcam feed
-  image(video, vx, vy, vw, vh);
+  // Webcam feed, mirrored to match ml5 HandPose flipped keypoints
+  push();
+  translate(vx + vw, vy);
+  scale(-1, 1);
+  image(video, 0, 0, vw, vh);
+  pop();
 
   // Border
   stroke(THEME.border);
@@ -1405,7 +1439,7 @@ function drawSpotterOverlay() {
   // HandPose landmark dots — mapped from video space to overlay space
   for (const hand of hands) {
     for (const kp of hand.keypoints) {
-      const mx = map(kp.x, 0, video.width,  vx, vx + vw);
+      const mx = map(kp.x, 0, video.width, vx, vx + vw);
       const my = map(kp.y, 0, video.height, vy, vy + vh);
       fill(27, 79, 216, 200);
       noStroke();
@@ -1450,9 +1484,9 @@ function drawPanel(x, y, w, h, elevated) {
 // Small pill-shaped label — used for gesture labels, lock status indicators, etc.
 
 function drawStatusChip(x, y, label, value, col) {
-  const r = parseInt(col.slice(1,3), 16);
-  const g = parseInt(col.slice(3,5), 16);
-  const b = parseInt(col.slice(5,7), 16);
+  const r = parseInt(col.slice(1, 3), 16);
+  const g = parseInt(col.slice(3, 5), 16);
+  const b = parseInt(col.slice(5, 7), 16);
 
   fill(r, g, b, 20);
   stroke(r, g, b, 80);
@@ -1489,7 +1523,7 @@ function keyPressed() {
       case STATE.INTERCEPT_SUCCESS:
         // Move to vote screen once the reveal has faded in
         if (revealAlpha >= 255) {
-          state     = STATE.VOTE;
+          state = STATE.VOTE;
           voteTimer = VOTE_FRAMES;
         }
         break;
@@ -1520,7 +1554,7 @@ function keyPressed() {
   // Force a successful intercept — skips lock mechanic for testing
   // Useful when ESP32 is not connected and you need to test the reveal/vote flow
   if ((key === 'i' || key === 'I') &&
-      (state === STATE.HUNT || state === STATE.LOCK_ATTEMPT)) {
+    (state === STATE.HUNT || state === STATE.LOCK_ATTEMPT)) {
     session.interceptCount++;
     revealAlpha = 0;
     state = STATE.INTERCEPT_SUCCESS;
