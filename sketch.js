@@ -123,6 +123,14 @@ let targetFreq = 50;               // 0–100, Operator must match with pot
 let currentTx = null;             // current transmission object (see TRANSMISSIONS)
 let signalDriftTimer = 0;            // counts up until signal picks a new target node
 
+// Spotter scan/reveal mechanic
+// 0 = hidden/noisy, 1 = fully revealed
+let signalReveal = 0.25;
+
+const SCAN_RADIUS = 170;  // open palm can find signal from farther away
+const TARGET_RADIUS = 75;   // one finger keeps signal stable/revealed
+const LOCK_RADIUS = 75;   // two fingers can lock only when close
+
 
 // =============================================================================
 // TRANSMISSION LIBRARY
@@ -435,6 +443,9 @@ function spawnSignal() {
   else pool = TRANSMISSIONS.filter(t => t.civilian);
 
   currentTx = random(pool);
+  // New signal starts mostly hidden.
+  // Spotter must scan to reveal it again.
+  signalReveal = 0.25;
 }
 
 
@@ -513,6 +524,36 @@ function updateSignalDrift() {
     const next = floor(random(nodes.length));
     signalTarget = { x: nodes[next].x, y: nodes[next].y };
   }
+}
+
+function updateSignalReveal() {
+  if (gesture === 'none') {
+    signalReveal = max(0.15, signalReveal - 0.006);
+    return;
+  }
+
+  const d = dist(sweepPos.x, sweepPos.y, signalPos.x, signalPos.y);
+
+  // Open palm: broad scan. Finds/reveals the signal from far away.
+  if (gesture === 'scan' && d < SCAN_RADIUS) {
+    signalReveal = min(1, signalReveal + 0.045);
+    return;
+  }
+
+  // Index finger: precise target. Keeps the signal visible if you are close.
+  if (gesture === 'target' && d < TARGET_RADIUS) {
+    signalReveal = min(1, signalReveal + 0.025);
+    return;
+  }
+
+  // Two fingers: lock gesture also keeps it visible if close.
+  if (gesture === 'lock' && d < LOCK_RADIUS) {
+    signalReveal = min(1, signalReveal + 0.018);
+    return;
+  }
+
+  // If you are not scanning/targeting it, it fades back into noise.
+  signalReveal = max(0.15, signalReveal - 0.01);
 }
 
 
@@ -718,17 +759,23 @@ function drawDataTicker() {
 // Spotter uses hand gestures; Operator uses the physical panel.
 
 function drawHuntPhase() {
+  updateSignalReveal();
+
   drawNetwork(255);
   drawSignalDot();
   drawSweepCursor();
   drawFrequencyMeter();
+  drawSpotterInstructions();
+
+  // Signal must be revealed before lock can start.
+  const revealedEnough = signalReveal > 0.65;
 
   // Check whether to enter LOCK_ATTEMPT state:
-  // Spotter must be holding the 'lock' gesture with finger over the signal
-  if (gesture === 'lock') {
+  // Spotter must reveal the signal, then hold lock gesture close to it.
+  if (gesture === 'lock' && revealedEnough) {
     const d = dist(sweepPos.x, sweepPos.y, signalPos.x, signalPos.y);
-    if (d < 65 && state !== STATE.LOCK_ATTEMPT) {
-      state = STATE.LOCK_ATTEMPT;
+    if (d < LOCK_RADIUS && state !== STATE.LOCK_ATTEMPT) {
+      state         = STATE.LOCK_ATTEMPT;
       lockCountdown = LOCK_FRAMES;
     }
   } else {
@@ -864,32 +911,71 @@ function drawNetwork(alpha) {
 function drawSignalDot() {
   const pulse = sin(frameCount * 0.07) * 0.5 + 0.5;
 
-  // Connecting line to nearest node (shows signal is "on" the network)
+  // Convert reveal level to alpha.
+  // Hidden signals are faint/noisy. Revealed signals are bright.
+  const a = map(signalReveal, 0, 1, 25, 255);
+
+  // Connecting line to nearest node only becomes clear when signal is revealed
   const nearest = nodes.reduce((best, n) => {
     const d = dist(n.x, n.y, signalPos.x, signalPos.y);
     return d < best.d ? { n, d } : best;
   }, { n: nodes[0], d: Infinity }).n;
 
-  stroke(245, 158, 11, 60 + pulse * 40);
+  stroke(245, 158, 11, a * 0.35);
   strokeWeight(1);
   line(nearest.x, nearest.y, signalPos.x, signalPos.y);
 
+  // If not revealed, draw a vague noisy area instead of a clear signal.
+  if (signalReveal < 0.45) {
+    noFill();
+    stroke(245, 158, 11, 35 + pulse * 25);
+    strokeWeight(1);
+    ellipse(signalPos.x, signalPos.y, 26 + pulse * 18, 26 + pulse * 18);
+
+    fill(245, 158, 11, 50);
+    noStroke();
+    ellipse(signalPos.x, signalPos.y, 5, 5);
+
+    fill(245, 158, 11, 90);
+    textFont(FONT_MONO);
+    textSize(7);
+    textAlign(CENTER);
+    text('SIGNAL NOISE', signalPos.x, signalPos.y - 16);
+    return;
+  }
+
   // Outer glow
   noStroke();
-  fill(245, 158, 11, 35 + pulse * 25);
+  fill(245, 158, 11, a * 0.22);
   ellipse(signalPos.x, signalPos.y, 34 + pulse * 10, 34 + pulse * 10);
 
-  // Core dot — solid amber
-  fill(245, 158, 11);
+  // Core dot
+  fill(245, 158, 11, a);
   ellipse(signalPos.x, signalPos.y, 9, 9);
 
-  // Small label: "ACTIVE SIGNAL" above the dot
-  fill(245, 158, 11, 160);
+  // Reveal percentage ring
+  noFill();
+  stroke(245, 158, 11, a * 0.7);
+  strokeWeight(2);
+  arc(
+    signalPos.x, signalPos.y,
+    46, 46,
+    -HALF_PI,
+    -HALF_PI + TWO_PI * signalReveal
+  );
+
+  // Label
+  fill(245, 158, 11, a * 0.8);
   textFont(FONT_MONO);
   textSize(8);
   textAlign(CENTER);
   noStroke();
-  text('ACTIVE SIGNAL', signalPos.x, signalPos.y - 18);
+
+  if (signalReveal > 0.65) {
+    text('ACTIVE SIGNAL', signalPos.x, signalPos.y - 24);
+  } else {
+    text('WEAK SIGNAL', signalPos.x, signalPos.y - 24);
+  }
 }
 
 
@@ -902,38 +988,59 @@ function drawSignalDot() {
 function drawSweepCursor() {
   if (gesture === 'none') return;
 
-  // Proximity to signal — used for a visual "getting warmer" effect
-  const proximity = map(
-    dist(sweepPos.x, sweepPos.y, signalPos.x, signalPos.y),
-    0, 250, 1, 0, true
-  );
+  const d = dist(sweepPos.x, sweepPos.y, signalPos.x, signalPos.y);
 
-  // Different cursor sizes and colors per gesture
-  let cursorColor, ringSize;
-  if (gesture === 'scan') { cursorColor = THEME.blue; ringSize = 70; }
-  else if (gesture === 'target') { cursorColor = THEME.blue; ringSize = 28; }
-  else { cursorColor = THEME.success; ringSize = 20; } // lock
+  let cursorColor, ringSize, label;
 
-  // Parse hex color to RGB for alpha control
-  const r = parseInt(cursorColor.slice(1, 3), 16);
-  const g = parseInt(cursorColor.slice(3, 5), 16);
-  const b = parseInt(cursorColor.slice(5, 7), 16);
-
-  // Proximity ring — brightens as cursor nears signal
-  if (proximity > 0.2) {
-    noFill();
-    stroke(r, g, b, proximity * 100);
-    strokeWeight(1);
-    ellipse(sweepPos.x, sweepPos.y, ringSize * 2.2, ringSize * 2.2);
+  if (gesture === 'scan') {
+    cursorColor = THEME.blue;
+    ringSize = SCAN_RADIUS;
+    label = 'SCAN';
+  } else if (gesture === 'target') {
+    cursorColor = THEME.blue;
+    ringSize = TARGET_RADIUS;
+    label = 'TARGET';
+  } else {
+    cursorColor = THEME.success;
+    ringSize = LOCK_RADIUS;
+    label = 'LOCK';
   }
 
-  // Cursor crosshair dot
-  noStroke();
-  fill(r, g, b, 180);
-  ellipse(sweepPos.x, sweepPos.y, ringSize * 0.22, ringSize * 0.22);
+  const r = parseInt(cursorColor.slice(1,3), 16);
+  const g = parseInt(cursorColor.slice(3,5), 16);
+  const b = parseInt(cursorColor.slice(5,7), 16);
 
-  // Gesture label chip
-  drawStatusChip(sweepPos.x + 12, sweepPos.y - 14, 'SPOTTER', gesture.toUpperCase(), cursorColor);
+  // Main action radius
+  noFill();
+  stroke(r, g, b, 80);
+  strokeWeight(1.5);
+  ellipse(sweepPos.x, sweepPos.y, ringSize * 2, ringSize * 2);
+
+  // Stronger feedback when your gesture radius overlaps the signal
+  if (d < ringSize) {
+    stroke(r, g, b, 160);
+    strokeWeight(2.5);
+    ellipse(sweepPos.x, sweepPos.y, ringSize * 2.15, ringSize * 2.15);
+  }
+
+  // Center cursor
+  fill(r, g, b, 230);
+  noStroke();
+  ellipse(sweepPos.x, sweepPos.y, 8, 8);
+
+  // Crosshair
+  stroke(r, g, b, 180);
+  strokeWeight(1);
+  line(sweepPos.x - 10, sweepPos.y, sweepPos.x + 10, sweepPos.y);
+  line(sweepPos.x, sweepPos.y - 10, sweepPos.x, sweepPos.y + 10);
+
+  // Label
+  fill(r, g, b, 220);
+  noStroke();
+  textFont(FONT_MONO);
+  textSize(9);
+  textAlign(CENTER);
+  text(label, sweepPos.x, sweepPos.y - ringSize - 8);
 }
 
 
@@ -990,6 +1097,33 @@ function drawFrequencyMeter() {
   textFont(FONT_SANS);
   textSize(9);
   text(locked ? 'FREQUENCY LOCKED' : 'SEARCHING...', panelX, panelY + 58);
+}
+
+function drawSpotterInstructions() {
+  const x = width - 310;
+  const y = 86;
+  const w = 280;
+  const h = 118;
+
+  drawPanel(x, y, w, h, false);
+
+  fill(THEME.textPrimary);
+  noStroke();
+  textFont(FONT_SANS);
+  textSize(13);
+  textAlign(LEFT);
+  text('Spotter controls', x + 16, y + 24);
+
+  fill(THEME.textSecondary);
+  textSize(10);
+  text('Open palm: scan / reveal hidden signal', x + 16, y + 48);
+  text('One finger: target / stabilize signal', x + 16, y + 68);
+  text('Two fingers: lock when signal is revealed', x + 16, y + 88);
+
+  fill(THEME.blue);
+  textFont(FONT_MONO);
+  textSize(9);
+  text(`SIGNAL REVEAL: ${floor(signalReveal * 100)}%`, x + 16, y + 108);
 }
 
 
