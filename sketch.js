@@ -115,6 +115,7 @@ let session = {
 
 let nodes = [];   // array of { id, x, y, phase } objects
 let edges = [];   // array of { a, b } index pairs
+let dataParticles = []; // ambient packets moving along network edges
 
 // Active signal — the thing both players are trying to intercept
 let signalPos = { x: 0, y: 0 };   // current rendered position
@@ -282,6 +283,21 @@ let consequenceTimer = 0;
 let revealAlpha = 0;  // fade-in alpha for the intercept reveal card (0–255)
 let tickerOffset = 0;  // x position of the idle-screen scrolling data ticker
 
+const DATA_PARTICLE_COUNT = 52;
+
+
+// =============================================================================
+// CP3 INSTRUCTION OVERLAY
+// =============================================================================
+// Shows after session start, then auto-hides. H toggles it any time.
+
+let instructionOverlayVisible = false;
+let instructionOverlayAutoHideAt = 0;
+let instructionImage = null;
+
+const INSTRUCTION_ASSET = 'assets/instructions/cp3_quick_start.png';
+const INSTRUCTION_AUTO_HIDE_FRAMES = 7 * 60;
+
 
 // =============================================================================
 // PRELOAD
@@ -318,7 +334,16 @@ function setup() {
   });
 
   buildNetwork();
+  loadInstructionImages();
   connectWebSocket();
+}
+
+function loadInstructionImages() {
+  loadImage(
+    INSTRUCTION_ASSET,
+    (img) => { instructionImage = img; },
+    () => { instructionImage = null; }
+  );
 }
 
 
@@ -350,6 +375,18 @@ function buildNetwork() {
     [0, 4], [1, 5], [2, 6], [3, 7], [5, 9], [6, 10], [8, 9], [9, 10], [10, 11], [4, 8],
   ];
   edges = pairs.map(([a, b]) => ({ a, b }));
+
+  dataParticles = Array.from({ length: DATA_PARTICLE_COUNT }, () => createDataParticle());
+}
+
+function createDataParticle() {
+  return {
+    edge: floor(random(edges.length)),
+    t: random(),
+    speed: random(0.0025, 0.007),
+    size: random(2.0, 3.8),
+    lane: random(-1.6, 1.6),
+  };
 }
 
 
@@ -383,6 +420,7 @@ function connectWebSocket() {
     if (msg.type === 'init' && state === STATE.IDLE) {
       state = STATE.HUNT;
       spawnSignal();
+      showInstructionOverlay(true);
     }
 
     // ── ESP32 Operator panel data ─────────────────────────────────────────
@@ -458,10 +496,12 @@ function spawnSignal() {
 function draw() {
   // Corporate aesthetic: white/light background instead of dark
   background(THEME.bgPage);
+  drawSurveillanceHaze();
 
   // These run every frame regardless of game state
   updateGesture();       // process webcam → gesture classification
   updateSignalDrift();   // move the active signal around the map
+  updateDataParticles();  // ambient packet motion across the network
 
   // Route to the correct draw function for the current state
   switch (state) {
@@ -498,6 +538,13 @@ function draw() {
   // These always render on top of everything else
   drawSpotterOverlay();  // webcam feed + hand landmarks (bottom-left corner)
   drawHUD();             // top status bar
+
+  if (instructionOverlayVisible) drawInstructionOverlay();
+}
+
+function showInstructionOverlay(autoHide) {
+  instructionOverlayVisible = true;
+  instructionOverlayAutoHideAt = autoHide ? frameCount + INSTRUCTION_AUTO_HIDE_FRAMES : 0;
 }
 
 
@@ -524,6 +571,35 @@ function updateSignalDrift() {
     const next = floor(random(nodes.length));
     signalTarget = { x: nodes[next].x, y: nodes[next].y };
   }
+}
+
+function updateDataParticles() {
+  for (const p of dataParticles) {
+    p.t += p.speed;
+    if (p.t > 1) {
+      const next = createDataParticle();
+      p.edge = next.edge;
+      p.t = 0;
+      p.speed = next.speed;
+      p.size = next.size;
+      p.lane = next.lane;
+    }
+  }
+}
+
+function drawSurveillanceHaze() {
+  if (!session || session.surveillanceIndex <= 0) return;
+
+  const intensity = map(session.surveillanceIndex, 0, 100, 0, 1, true);
+  noStroke();
+
+  // Corner pressure keeps the warning visible without washing out the UI.
+  fill(220, 38, 38, 10 + intensity * 34);
+  rect(0, 0, width, height);
+
+  fill(220, 38, 38, 14 + intensity * 42);
+  ellipse(width + 80, -60, 380 + intensity * 240, 260 + intensity * 180);
+  ellipse(-80, height + 70, 320 + intensity * 220, 230 + intensity * 150);
 }
 
 function updateSignalReveal() {
@@ -879,6 +955,9 @@ function drawNetwork(alpha) {
     line(nodeA.x, nodeA.y, nodeB.x, nodeB.y);
   }
 
+  drawAmbientDataParticles(a);
+  drawFocusedSignalStream(a);
+
   // ── Nodes ─────────────────────────────────────────────────────────────────
   for (const n of nodes) {
     const pulse = sin(frameCount * 0.025 + n.phase) * 0.5 + 0.5;
@@ -898,6 +977,69 @@ function drawNetwork(alpha) {
     textSize(7);
     textAlign(LEFT);
     text(`N${n.id.toString().padStart(2, '0')}`, n.x + 6, n.y - 4);
+  }
+}
+
+function drawAmbientDataParticles(a) {
+  if (dataParticles.length === 0) return;
+
+  for (const p of dataParticles) {
+    const e = edges[p.edge];
+    if (!e) continue;
+
+    const nodeA = nodes[e.a];
+    const nodeB = nodes[e.b];
+    const x = lerp(nodeA.x, nodeB.x, p.t);
+    const y = lerp(nodeA.y, nodeB.y, p.t);
+    const dx = nodeB.x - nodeA.x;
+    const dy = nodeB.y - nodeA.y;
+    const len = max(1, sqrt(dx * dx + dy * dy));
+    const nx = -dy / len;
+    const ny = dx / len;
+    const pulse = sin((p.t + frameCount * 0.01) * TWO_PI) * 0.5 + 0.5;
+
+    noStroke();
+    fill(27, 79, 216, (45 + pulse * 65) * a);
+    ellipse(x + nx * p.lane, y + ny * p.lane, p.size, p.size);
+  }
+}
+
+function drawFocusedSignalStream(a) {
+  if (!currentTx || signalReveal < 0.45) return;
+
+  const nearest = nodes.reduce((best, n) => {
+    const d = dist(n.x, n.y, signalPos.x, signalPos.y);
+    return d < best.d ? { n, d } : best;
+  }, { n: nodes[0], d: Infinity }).n;
+
+  const capturing = state === STATE.LOCK_ATTEMPT || state === STATE.INTERCEPT_SUCCESS;
+  const density = capturing ? 18 : floor(map(signalReveal, 0.45, 1, 6, 12, true));
+  const streamColor = capturing ? THEME.success : THEME.signalColor;
+
+  const r = parseInt(streamColor.slice(1, 3), 16);
+  const g = parseInt(streamColor.slice(3, 5), 16);
+  const b = parseInt(streamColor.slice(5, 7), 16);
+
+  stroke(r, g, b, (capturing ? 90 : 55) * a);
+  strokeWeight(capturing ? 1.8 : 1.1);
+  line(nearest.x, nearest.y, signalPos.x, signalPos.y);
+
+  const dx = signalPos.x - nearest.x;
+  const dy = signalPos.y - nearest.y;
+  const len = max(1, sqrt(dx * dx + dy * dy));
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  noStroke();
+  for (let i = 0; i < density; i++) {
+    const t = (frameCount * (capturing ? 0.028 : 0.018) + i / density) % 1;
+    const side = ((i % 3) - 1) * (capturing ? 5 : 3);
+    const x = lerp(nearest.x, signalPos.x, t) + nx * side;
+    const y = lerp(nearest.y, signalPos.y, t) + ny * side;
+    const size = capturing ? 4.2 : 3.2;
+    const alpha = (capturing ? 145 : 95) * a * signalReveal;
+    fill(r, g, b, alpha);
+    ellipse(x, y, size, size);
   }
 }
 
@@ -1592,6 +1734,57 @@ function drawSpotterOverlay() {
 
 
 // =============================================================================
+// DRAW: CP3 INSTRUCTION OVERLAY
+// =============================================================================
+// Single quick-start image, scaled to fit the 1280x720 canvas.
+
+function drawInstructionOverlay() {
+  if (instructionOverlayAutoHideAt > 0 && frameCount >= instructionOverlayAutoHideAt) {
+    instructionOverlayVisible = false;
+    instructionOverlayAutoHideAt = 0;
+    return;
+  }
+
+  fill(240, 242, 245, 242);
+  noStroke();
+  rect(0, 0, width, height);
+
+  if (!instructionImage) {
+    drawPanel(230, 210, width - 460, 180, true);
+    fill(THEME.textPrimary);
+    textFont(FONT_SANS);
+    textSize(22);
+    textAlign(CENTER);
+    text('INTERCEPT QUICK START', width / 2, 285);
+    fill(THEME.textSecondary);
+    textSize(13);
+    text('SCAN -> TARGET -> LOCK -> TUNE -> CONFIRM', width / 2, 318);
+    return;
+  }
+
+  const margin = 20;
+  const scale = min((width - margin * 2) / instructionImage.width, (height - margin * 2) / instructionImage.height);
+  const imgW = instructionImage.width * scale;
+  const imgH = instructionImage.height * scale;
+  const imgX = (width - imgW) / 2;
+  const imgY = (height - imgH) / 2;
+
+  fill(0, 0, 0, 18);
+  rect(imgX + 3, imgY + 4, imgW, imgH, 6);
+  image(instructionImage, imgX, imgY, imgW, imgH);
+
+  fill(255, 255, 255, 210);
+  noStroke();
+  rect(width - 106, 18, 86, 22, 4);
+  fill(THEME.blue);
+  textFont(FONT_MONO);
+  textSize(9);
+  textAlign(CENTER);
+  text('H TO HIDE', width - 63, 32);
+}
+
+
+// =============================================================================
 // UI HELPER: PANEL
 // =============================================================================
 // Draws a white card with subtle shadow and border.
@@ -1645,6 +1838,16 @@ function drawStatusChip(x, y, label, value, col) {
 // R = RETAIN vote, P = PURGE vote
 
 function keyPressed() {
+  if (key === 'h' || key === 'H') {
+    if (instructionOverlayVisible) {
+      instructionOverlayVisible = false;
+      instructionOverlayAutoHideAt = 0;
+    } else {
+      showInstructionOverlay(false);
+    }
+    return;
+  }
+
   if (key === ' ') {
     switch (state) {
 
@@ -1652,6 +1855,7 @@ function keyPressed() {
         // Start game without floppy — demo mode
         state = STATE.HUNT;
         spawnSignal();
+        showInstructionOverlay(true);
         break;
 
       case STATE.INTERCEPT_SUCCESS:
@@ -1680,6 +1884,7 @@ function keyPressed() {
           contractorScore: 100, lastVote: null,
         };
         spawnSignal();
+        showInstructionOverlay(true);
         state = STATE.HUNT;
         break;
     }
