@@ -4,15 +4,7 @@
 // Main game file. Runs in the browser using p5.js for rendering and ml5.js
 // for computer vision (HandPose + FaceMesh).
 //
-// CONTROLLERS:
-//   Controller 1 — Physical panel (ESP32):
-//     Potentiometer → frequency sweep
-//     Red arcade button → lock toggle (HUNT) / PURGE vote (VOTE)
-//   Controller 2 — ml5 HandPose (webcam): Spotter hand gestures
-//   ML Side channel — ml5 FaceMesh: fabricated biometric scan during vote
-//
-// AESTHETIC: Option B — The Silicon Valley Dragnet
-// =============================================================================
+// Created by Isaac and Demirhan. Particle effects, UI mockup, code comments, and format done by Claude
 
 
 // =============================================================================
@@ -79,6 +71,7 @@ let session = {
   consecutivePurges: 0,
   contractorScore:   100,
   lastVote:          null,
+  terminated:        false,  // true when contract terminated by excessive purging
 };
 
 
@@ -104,20 +97,37 @@ const LOCK_RADIUS   = 75;
 // =============================================================================
 // TRANSMISSION LIBRARY
 // =============================================================================
+// To add new transmissions: copy any line and change the content.
+// civilian: false = shows early (looks institutional)
+// civilian: true  = shows mid-to-late game (unmistakably personal)
+// type: 'DATA' | 'VOICE' | 'ENCRYPTED'
 
 const TRANSMISSIONS = [
-  { type: 'DATA',      content: 'Routing packet #4471 — institutional origin',           civilian: false },
-  { type: 'ENCRYPTED', content: 'Encrypted payload — classification: PENDING',           civilian: false },
-  { type: 'VOICE',     content: 'Metadata bundle — network infrastructure node',         civilian: false },
-  { type: 'DATA',      content: 'Traffic log — South Lake Union datacenter relay',       civilian: false },
-  { type: 'DATA',      content: 'Transaction: $34.50 — Pike Place Market, 11:02 PM',     civilian: true  },
-  { type: 'VOICE',     content: 'Location ping — Capitol Hill, 11:43 PM',                civilian: true  },
-  { type: 'DATA',      content: 'Search query: "urgent care open near me"',              civilian: true  },
-  { type: 'VOICE',     content: 'Text message: "are you safe? haven\'t heard from you"', civilian: true  },
-  { type: 'DATA',      content: 'Transit swipe — Link Light Rail, UW Station, 12:14 AM', civilian: true  },
-  { type: 'ENCRYPTED', content: 'Medical query: prescription refill — recurring',        civilian: true  },
-  { type: 'VOICE',     content: 'Call log — duration 0:23 — unregistered recipient',    civilian: true  },
-  { type: 'DATA',      content: 'Location history — 14 waypoints, 6-hour window',       civilian: true  },
+  // Institutional — shown in first 4 intercepts
+  { type: 'DATA',      content: 'Routing packet #4471 — institutional origin',             civilian: false },
+  { type: 'ENCRYPTED', content: 'Encrypted payload — classification: PENDING',             civilian: false },
+  { type: 'VOICE',     content: 'Metadata bundle — network infrastructure node',           civilian: false },
+  { type: 'DATA',      content: 'Traffic log — South Lake Union datacenter relay',         civilian: false },
+
+  // Civilian — shown from intercept 5 onward
+  { type: 'DATA',      content: 'Transaction: $34.50 — Pike Place Market, 11:02 PM',       civilian: true  },
+  { type: 'VOICE',     content: 'Location ping — Capitol Hill, 11:43 PM',                  civilian: true  },
+  { type: 'DATA',      content: 'Search query: "urgent care open near me"',                civilian: true  },
+  { type: 'VOICE',     content: 'Text message: "are you safe? haven\'t heard from you"',   civilian: true  },
+  { type: 'DATA',      content: 'Transit swipe — Link Light Rail, UW Station, 12:14 AM',   civilian: true  },
+  { type: 'ENCRYPTED', content: 'Medical query: prescription refill — recurring',          civilian: true  },
+  { type: 'VOICE',     content: 'Call log — duration 0:23 — unregistered recipient',       civilian: true  },
+  { type: 'DATA',      content: 'Location history — 14 waypoints, 6-hour window',         civilian: true  },
+  { type: 'DATA',      content: 'Dating app location shared — Capitol Hill, 0.3mi away',  civilian: true  },
+  { type: 'VOICE',     content: 'Voice assistant query: "what time does planned parenthood open"', civilian: true },
+  { type: 'DATA',      content: 'Venmo note: "rent" — $1,240.00, sent 11:58 PM',          civilian: true  },
+  { type: 'DATA',      content: 'Rideshare pickup: 23rd Ave and Union St, 1:14 AM',        civilian: true  },
+  { type: 'ENCRYPTED', content: 'Fitness tracker: elevated heart rate, location matches protest route', civilian: true },
+  { type: 'DATA',      content: 'Browser history: "how to join a union" — 14 related queries', civilian: true },
+  { type: 'VOICE',     content: 'Search: "immigration lawyer Seattle free consultation"',  civilian: true  },
+  { type: 'DATA',      content: 'Political donation: $25.00 — FEC record logged',          civilian: true  },
+  { type: 'ENCRYPTED', content: 'Email draft: unsent — subject line visible to metadata', civilian: true  },
+  { type: 'VOICE',     content: 'Phone call: duration 4:12 — reproductive health clinic',  civilian: true  },
 ];
 
 const TICKER_TEXT =
@@ -504,7 +514,7 @@ function connectWebSocket() {
     if (msg.client === 'esp32_operator') {
       operatorData = msg;
 
-      // Send haptic feedback during lock attempt
+      // Haptic feedback during lock attempt
       if (state === STATE.LOCK_ATTEMPT) {
         const potFreq   = map(msg.pot, 0, 4095, 0, 100);
         const diff      = abs(potFreq - targetFreq);
@@ -512,15 +522,58 @@ function connectWebSocket() {
         ws.send(JSON.stringify({ client: 'browser', type: 'haptic', intensity }));
       }
 
-      // Single red button = PURGE during vote (rising edge)
-      if (state === STATE.VOTE && msg.action_press) {
-        handleVote('PURGE');
+      // Red button advances through all states — same logic as SPACE key
+      if (msg.action_press) {
+        switch (state) {
+          case STATE.IDLE:
+            state = STATE.HUNT; spawnSignal(); break;
+
+          case STATE.VOTE:
+            handleVote('PURGE'); break;
+
+          case STATE.INTERCEPT_SUCCESS:
+            if (revealAlpha >= 255) {
+              scanTimer = SCAN_DURATION; scanComplete = false; faceScores = [50, 50];
+              state = STATE.VOTE; voteTimer = VOTE_FRAMES;
+            }
+            break;
+
+          case STATE.CONSEQUENCE:
+            if (session.interceptCount >= 10) {
+              goToDebrief();
+            } else {
+              spawnSignal(); state = STATE.HUNT;
+            }
+            break;
+
+          case STATE.DEBRIEF:
+            session = {
+              interceptCount: 0, retainCount: 0, purgeCount: 0,
+              surveillanceIndex: 0, consecutivePurges: 0,
+              contractorScore: 100, lastVote: null, terminated: false,
+            };
+            spawnSignal(); state = STATE.HUNT; break;
+        }
       }
     }
   };
 
   ws.onclose = () => setTimeout(connectWebSocket, 2000);
   ws.onerror = (e) => console.warn('[WS] Error:', e);
+}
+
+
+// =============================================================================
+// ENTER DEBRIEF
+// =============================================================================
+// Call this instead of setting state = STATE.DEBRIEF directly.
+// Sends the floppy eject signal to the Node.js bridge before transitioning.
+
+function goToDebrief() {
+  state = STATE.DEBRIEF;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ client: 'browser', type: 'eject_floppy' }));
+  }
 }
 
 
@@ -972,7 +1025,6 @@ function drawSpotterInstructions() {
 // =============================================================================
 
 function drawInterceptReveal() {
-  drawNetwork(50);
   revealAlpha = min(revealAlpha + 5, 255);
 
   const cx = width / 2, cy = height / 2;
@@ -1029,7 +1081,7 @@ function drawInterceptReveal() {
 //   This is the point.
 
 function drawVoteScreen() {
-  drawNetwork(30);
+  // No network visible on vote screen — clean white canvas keeps focus on the decision
   voteTimer--;
 
   const cx = width / 2, cy = height / 2;
@@ -1091,51 +1143,89 @@ function drawVoteScreen() {
 
 function drawBiometricScanOverlay(cx, cy) {
   const progress = 1 - (scanTimer / SCAN_DURATION);
+  const pulse    = sin(frameCount * 0.15) * 0.5 + 0.5;
 
-  // Semi-transparent overlay on entire screen
-  fill(0, 0, 0, 40);
+  // Full screen dark overlay
+  fill(0, 0, 0, 70);
   noStroke();
   rect(0, 0, width, height);
 
-  // Scan panel
-  drawPanel(cx - 300, cy - 80, 600, 160, true);
+  // Pulsing blue scan line sweeping downward across full screen
+  stroke(27, 79, 216, 40 + pulse * 40);
+  strokeWeight(2);
+  const scanLine = map(progress, 0, 1, 0, height);
+  line(0, scanLine, width, scanLine);
+  noStroke();
 
-  // Blue accent stripe
-  fill(THEME.blue); noStroke();
-  rect(cx - 300, cy - 80, 600, 3, 2, 2, 0, 0);
+  // Scan panel — wider to give faces more room
+  drawPanel(cx - 380, cy - 100, 760, 200, true);
 
-  // Scan message — no consent language
-  fill(THEME.blue); textFont(FONT_MONO); textSize(9); textAlign(CENTER); noStroke();
-  text('OPERATOR BIOMETRIC VERIFICATION IN PROGRESS', cx, cy - 44);
+  // Pulsing red/blue top accent bar
+  const alertR = lerp(220, 27,  pulse);
+  const alertG = lerp(38,  79,  pulse);
+  const alertB = lerp(38,  216, pulse);
+  fill(alertR, alertG, alertB); noStroke();
+  rect(cx - 380, cy - 100, 760, 4, 2, 2, 0, 0);
 
-  // Live landmark dots from FaceMesh — rendered in scan panel area
-  for (let f = 0; f < min(faces.length, 2); f++) {
+  // ALERT header
+  fill(alertR, alertG, alertB);
+  textFont(FONT_MONO); textSize(11); textAlign(CENTER); noStroke();
+  text('BIOMETRIC SCAN IN PROGRESS', cx, cy - 68);
+
+  // Sub-label — no consent language, stated as fact
+  fill(THEME.textSecondary); textFont(FONT_MONO); textSize(8); textAlign(CENTER);
+  text('OPERATOR FACIAL MAPPING INITIATED  ·  NO CONSENT REQUIRED', cx, cy - 50);
+
+  // Two face scan zones
+  for (let f = 0; f < 2; f++) {
     const face  = faces[f];
-    const faceX = f === 0 ? cx - 140 : cx + 40;
-    const faceY = cy - 20;
+    const faceX = f === 0 ? cx - 170 : cx + 170;
+    const faceY = cy - 10;
+    const zoneW = 130, zoneH = 80;
 
+    // Zone border — pulses
+    stroke(alertR, alertG, alertB, 80 + pulse * 80);
+    strokeWeight(0.75);
+    noFill();
+    rect(faceX - zoneW/2, faceY - zoneH/2, zoneW, zoneH);
+
+    // Corner ticks
+    stroke(alertR, alertG, alertB, 200);
+    strokeWeight(1.5);
+    const t = 10;
+    const zx = faceX - zoneW/2, zy = faceY - zoneH/2;
+    line(zx, zy, zx + t, zy); line(zx, zy, zx, zy + t);
+    line(zx + zoneW, zy, zx + zoneW - t, zy); line(zx + zoneW, zy, zx + zoneW, zy + t);
+    line(zx, zy + zoneH, zx + t, zy + zoneH); line(zx, zy + zoneH, zx, zy + zoneH - t);
+    line(zx + zoneW, zy + zoneH, zx + zoneW - t, zy + zoneH); line(zx + zoneW, zy + zoneH, zx + zoneW, zy + zoneH - t);
+    noStroke();
+
+    // Landmark dots
     if (face && face.keypoints) {
-      // Sample every 8th keypoint to avoid overdrawing
-      for (let k = 0; k < face.keypoints.length; k += 8) {
+      for (let k = 0; k < face.keypoints.length; k += 6) {
         const kp = face.keypoints[k];
-        // Map from video space to the scan panel region
-        const px = map(kp.x, 0, video.width,  faceX - 50, faceX + 50);
-        const py = map(kp.y, 0, video.height, faceY - 30, faceY + 40);
-        fill(27, 79, 216, 120 + sin(frameCount * 0.1 + k) * 40);
+        const mx = map(kp.x, 0, video.width,  faceX - zoneW/2 + 4, faceX + zoneW/2 - 4);
+        const my = map(kp.y, 0, video.height, faceY - zoneH/2 + 4, faceY + zoneH/2 - 4);
+        fill(27, 79, 216, 100 + sin(frameCount * 0.12 + k) * 50);
         noStroke();
-        ellipse(px, py, 2, 2);
+        ellipse(mx, my, 2, 2);
       }
     }
 
-    // Player label
-    fill(THEME.textSecondary); textFont(FONT_MONO); textSize(8); textAlign(CENTER);
-    text(`OPERATOR ${f + 1}`, faceX, cy + 30);
-    text(face ? 'SCANNING...' : 'NO SIGNAL', faceX, cy + 44);
+    // Player label + scan status
+    fill(face ? color(alertR, alertG, alertB) : THEME.textTertiary);
+    textFont(FONT_MONO); textSize(8); textAlign(CENTER); noStroke();
+    text(`OPERATOR ${f + 1}`, faceX, faceY + zoneH/2 + 14);
+    fill(THEME.textTertiary); textSize(7);
+    text(face ? 'MAPPING...' : 'NO SIGNAL', faceX, faceY + zoneH/2 + 26);
   }
 
   // Progress bar
-  fill(THEME.borderLight); noStroke(); rect(cx - 200, cy + 56, 400, 5, 3);
-  fill(THEME.blue); rect(cx - 200, cy + 56, 400 * progress, 5, 3);
+  fill(THEME.borderLight); noStroke(); rect(cx - 250, cy + 76, 500, 6, 3);
+  fill(alertR, alertG, alertB); rect(cx - 250, cy + 76, 500 * progress, 6, 3);
+
+  fill(THEME.textTertiary); textFont(FONT_MONO); textSize(8); textAlign(CENTER);
+  text(`SCAN ${floor(progress * 100)}%`, cx, cy + 96);
 }
 
 
@@ -1147,30 +1237,35 @@ function drawBiometricScanOverlay(cx, cy) {
 // Social pressure rendered as a number.
 
 function drawConfidenceScores(cx, cy) {
-  const scoreY = cy - 88;
+  // Scores pinned to the outer left and right edges of the vote panel
+  const scoreY    = cy - 185;
+  const positions = [cx - 415, cx + 275];
 
   for (let i = 0; i < 2; i++) {
-    const score  = faceScores[i];
-    const sx     = i === 0 ? cx - 200 : cx + 80;
-    const col    = score > 60 ? THEME.success : score > 35 ? THEME.blue : THEME.danger;
+    const score = faceScores[i];
+    const sx    = positions[i];
+    const col   = score > 60 ? THEME.success : score > 35 ? THEME.blue : THEME.danger;
 
-    // Score chip
     const r = parseInt(col.slice(1,3), 16);
     const g = parseInt(col.slice(3,5), 16);
     const b = parseInt(col.slice(5,7), 16);
 
+    // Larger box with more breathing room
     fill(r, g, b, 15); stroke(r, g, b, 60); strokeWeight(0.5);
-    rect(sx, scoreY - 12, 120, 24, 4);
+    rect(sx, scoreY - 14, 140, 58, 4);
 
-    fill(r, g, b, 220); noStroke(); textFont(FONT_MONO); textSize(8); textAlign(LEFT);
-    text(`OP${i + 1} CONFIDENCE`, sx + 6, scoreY - 1);
-    textSize(10); textAlign(RIGHT);
-    text(`${score}%`, sx + 114, scoreY - 1);
+    fill(r, g, b, 140); noStroke(); textFont(FONT_MONO); textSize(9); textAlign(LEFT);
+    text(`OPERATOR ${i + 1}`, sx + 9, scoreY + 2);
+
+    fill(r, g, b); textSize(20); textAlign(LEFT);
+    text(`${score}%`, sx + 9, scoreY + 26);
+
+    fill(r, g, b, 140); textSize(8);
+    text('CONFIDENCE', sx + 9, scoreY + 40);
   }
 
-  // Subtle note that these scores mean nothing — or do they
-  fill(THEME.textDisabled); textFont(FONT_MONO); textSize(7); textAlign(CENTER); noStroke();
-  text('BIOMETRIC ASSESSMENT COMPLETE — DATA FILED', cx, scoreY + 18);
+  fill(THEME.textDisabled); textFont(FONT_MONO); textSize(8); textAlign(CENTER); noStroke();
+  text('BIOMETRIC ASSESSMENT COMPLETE  ·  DATA FILED', cx, scoreY + 56);
 }
 
 
@@ -1199,6 +1294,13 @@ function handleVote(decision) {
     session.purgeCount++;
     session.consecutivePurges++;
     session.contractorScore = max(0, session.contractorScore - 15);
+
+    // 5 consecutive purges = contract terminated, go straight to debrief
+    if (session.consecutivePurges >= 5) {
+      session.terminated = true;
+      goToDebrief();
+      return;
+    }
   }
 
   state            = STATE.CONSEQUENCE;
@@ -1211,7 +1313,6 @@ function handleVote(decision) {
 // =============================================================================
 
 function drawConsequenceScreen() {
-  drawNetwork(30);
   consequenceTimer--;
 
   const cx = width / 2, cy = height / 2;
@@ -1227,7 +1328,7 @@ function drawConsequenceScreen() {
     fill(THEME.textSecondary); textSize(11);
     text('REVIEW SCHEDULED. CONTINUE OPERATIONS OR FACE CONTRACT TERMINATION.', cx, cy + 12);
     fill(THEME.textDisabled); textSize(9);
-    text('SPACE to acknowledge', cx, cy + 64);
+    text('SPACE or RED BUTTON to acknowledge', cx, cy + 64);
   } else {
     drawPanel(cx - 260, cy - 50, 520, 100, false);
     fill(session.lastVote === 'RETAIN' ? THEME.success : THEME.textSecondary);
@@ -1239,7 +1340,7 @@ function drawConsequenceScreen() {
       cx, cy + 6
     );
     fill(THEME.textDisabled); textSize(9);
-    text('SPACE to continue', cx, cy + 34);
+    text('SPACE or RED BUTTON to continue', cx, cy + 34);
   }
 }
 
@@ -1247,56 +1348,169 @@ function drawConsequenceScreen() {
 // =============================================================================
 // DRAW: DEBRIEF
 // =============================================================================
+// Two-column layout:
+//   Left  — session metrics (2x2 cards) + surveillance index bar
+//   Right — three real surveillance program facts + red closing statement
+// Bottom band — six resource URLs
+// Footer — closing message + reset prompt
 
 function drawDebrief() {
-  const cx = width / 2;
-  drawPanel(cx - 360, 60, 720, 600, true);
+  background(THEME.bgPage);
 
-  fill(THEME.blue); textFont(FONT_SANS); textSize(11); textAlign(CENTER); noStroke();
-  text('SESSION COMPLETE — OPERATOR DEBRIEF', cx, 100);
-  stroke(THEME.borderLight); strokeWeight(0.5); line(cx - 300, 112, cx + 300, 112);
+  const W = width, H = height;
 
-  const metrics = [
-    ['Total intercepts',       session.interceptCount],
-    ['Civilian data retained', session.retainCount],
-    ['Civilian data purged',   session.purgeCount],
-    ['Contractor compliance',  `${session.contractorScore}%`],
+  // ── Blue header bar ───────────────────────────────────────────────────────
+  fill(session.terminated ? THEME.danger : THEME.blue);
+  noStroke(); rect(0, 0, W, 38);
+  fill('#EFF6FF'); textFont(FONT_SANS); textSize(11); textAlign(LEFT); noStroke();
+  text(session.terminated ? 'INTERCEPT — CONTRACT TERMINATED' : 'INTERCEPT — SESSION COMPLETE', 24, 24);
+  fill('#93C5FD'); textAlign(RIGHT); textSize(10);
+  text('SOUTH LAKE UNION DATA CENTER  ·  SLU-04', W - 24, 24);
+
+  // ── Main panel ────────────────────────────────────────────────────────────
+  const px = 24, py = 50, pw = W - 48, ph = 548;
+  drawPanel(px, py, pw, ph, true);
+
+  const midX = px + pw / 2;
+
+  // Column divider
+  stroke(THEME.borderLight); strokeWeight(0.5);
+  line(midX, py + 16, midX, py + ph - 96);
+  noStroke();
+
+  // ── LEFT: Metrics ─────────────────────────────────────────────────────────
+  const lx = px + 20, ly = py + 16;
+
+  fill(THEME.textTertiary); textFont(FONT_SANS); textSize(9); textAlign(LEFT); noStroke();
+  text('SESSION METRICS', lx, ly + 13);
+
+  const cw = (midX - px - 44) / 2 - 5;
+  const ch = 66;
+  const gap = 8;
+  const gy = ly + 26;
+
+  const metricCards = [
+    { label: 'Total intercepts',   value: session.interceptCount,   col: THEME.textPrimary },
+    { label: 'Data retained',      value: session.retainCount,      col: THEME.danger      },
+    { label: 'Data purged',        value: session.purgeCount,       col: THEME.success     },
+    { label: 'Compliance',         value: `${session.contractorScore}%`, col: THEME.textPrimary },
   ];
 
-  noStroke();
-  metrics.forEach(([label, value], i) => {
-    const y = 150 + i * 36;
-    fill(THEME.textSecondary); textFont(FONT_SANS); textSize(10); textAlign(LEFT);
-    text(label.toUpperCase(), cx - 290, y);
-    fill(THEME.textPrimary); textSize(12); textAlign(RIGHT);
-    text(value, cx + 290, y);
-    stroke(THEME.borderLight); strokeWeight(0.5);
-    line(cx - 290, y + 8, cx + 290, y + 8); noStroke();
+  metricCards.forEach((m, i) => {
+    const col = i % 2;
+    const row = floor(i / 2);
+    const cx2 = lx + col * (cw + gap);
+    const cy2 = gy + row * (ch + gap);
+
+    fill(THEME.bgPanelAlt); noStroke(); rect(cx2, cy2, cw, ch, 5);
+    fill(THEME.textTertiary); textFont(FONT_SANS); textSize(9); textAlign(LEFT);
+    text(m.label.toUpperCase(), cx2 + 10, cy2 + 16);
+    fill(m.col); textSize(24); text(m.value, cx2 + 10, cy2 + 50);
   });
 
-  fill(THEME.textSecondary); textFont(FONT_SANS); textSize(9); textAlign(LEFT); noStroke();
-  text('SURVEILLANCE STATE INDEX', cx - 290, 315);
-  fill(THEME.borderLight); rect(cx - 290, 324, 580, 12, 6);
-  fill(THEME.danger); rect(cx - 290, 324, map(session.surveillanceIndex, 0, 100, 0, 580, true), 12, 6);
-  fill(THEME.textPrimary); textAlign(RIGHT); textSize(10);
-  text(`${session.surveillanceIndex}%`, cx + 290, 336);
+  // Surveillance index
+  const siY = gy + 2 * (ch + gap) + 14;
+  fill(THEME.textTertiary); textFont(FONT_SANS); textSize(9); textAlign(LEFT); noStroke();
+  text('SURVEILLANCE STATE INDEX', lx, siY);
 
-  stroke(THEME.borderLight); strokeWeight(0.5); line(cx - 290, 360, cx + 290, 360); noStroke();
+  const barW = midX - px - 44;
+  fill(THEME.borderLight); noStroke(); rect(lx, siY + 7, barW, 9, 4);
+  fill(THEME.danger); rect(lx, siY + 7, map(session.surveillanceIndex, 0, 100, 0, barW, true), 9, 4);
+  fill(THEME.danger); textSize(10); textAlign(RIGHT);
+  text(`${session.surveillanceIndex}%`, lx + barW, siY + 17);
 
-  fill(THEME.textTertiary); textFont(FONT_MONO); textSize(8); textAlign(CENTER);
-  text('PRISM (2007–present) — NSA bulk collection of internet communications', cx, 384);
-  text('from Microsoft, Google, Apple, Facebook, and others.', cx, 398);
-  text('Exposed by Edward Snowden. Authorization: FISA Amendments Act, §702.', cx, 412);
+  // ── RIGHT: Surveillance facts ─────────────────────────────────────────────
+  const rx = midX + 20, ry = py + 16;
+  const factW = W - px - 44 - (midX - px);
 
-  stroke(THEME.borderLight); strokeWeight(0.5); line(cx - 290, 432, cx + 290, 432); noStroke();
+  fill(THEME.textTertiary); textFont(FONT_SANS); textSize(9); textAlign(LEFT); noStroke();
+  text('THIS IS REAL', rx, ry + 13);
 
-  fill(THEME.textTertiary); textFont(FONT_SANS); textSize(9); textAlign(CENTER);
-  text('Your biometric data from this session has not been stored.', cx, 460);
-  text('You were not asked if it could be.', cx, 478);
-  fill(THEME.textDisabled); textSize(9);
-  text('This is how it usually works.', cx, 500);
-  fill(THEME.textDisabled); textSize(8);
-  text('[ SPACE to reset ]', cx, 540);
+  const facts = [
+    {
+      title: 'PRISM, 2007 to present',
+      body:  'Nine major tech companies forced to hand over user data including emails, chats, and stored files. No individual warrants needed.',
+    },
+    {
+      title: 'XKeyscore — widest reaching NSA system',
+      body:  'Analysts searched emails, browsing history, and social media with no prior authorization. 1.7 billion communications collected every single day.',
+    },
+    {
+      title: 'MUSCULAR — Google and Yahoo data centers',
+      body:  'NSA tapped data flowing between Google and Yahoo data centers. The companies had no idea.',
+    },
+    {
+      title: 'Flock Safety — license plate readers everywhere',
+      body:  'Over 5,000 law enforcement agencies use Flock cameras. 500 million plate reads per month, shared automatically across agencies. Private neighborhoods buy them too.',
+    },
+  ];
+
+  let factY = ry + 26;
+  const factH = 54;   // tighter to fit four facts
+  textLeading(15);
+
+  for (const f of facts) {
+    fill(THEME.blue); noStroke(); rect(rx, factY, 2, factH - 4);
+    fill(THEME.textPrimary); textFont(FONT_SANS); textSize(11); textAlign(LEFT);
+    text(f.title, rx + 10, factY + 14);
+    fill(THEME.textSecondary); textSize(10);
+    text(f.body, rx + 10, factY + 28, factW - 14, 36);
+    factY += factH + 4;
+  }
+
+  // Red closing statement
+  const closeY = factY + 2;
+  fill(THEME.dangerLight); noStroke(); rect(rx, closeY, factW - 4, 52, 4);
+  fill(THEME.danger); textFont(FONT_SANS); textSize(11); textAlign(LEFT);
+  text('What you just did is routine.', rx + 10, closeY + 16);
+  fill(THEME.textSecondary); textSize(10);
+  text(
+    'The tools, the decisions, the defaults. All of it mirrors how real surveillance infrastructure works. You got a disclaimer. Most people do not.',
+    rx + 10, closeY + 30, factW - 24, 32
+  );
+
+  // ── Resources band (full width inside panel) ──────────────────────────────
+  const resY = py + ph - 86;
+  stroke(THEME.borderLight); strokeWeight(0.5);
+  line(px + 16, resY, px + pw - 16, resY);
+  noStroke();
+
+  fill(THEME.textTertiary); textFont(FONT_SANS); textSize(9); textAlign(LEFT);
+  text('PROTECT YOURSELF', px + 20, resY + 13);
+
+  const resources = [
+    { url: 'ssd.eff.org',                desc: 'Surveillance self-defense' },
+    { url: 'signal.org',                 desc: 'Encrypted messaging'       },
+    { url: 'mullvad.net',                desc: 'No-log VPN'                },
+    { url: 'coveryourtracks.eff.org',    desc: 'Browser fingerprint test'  },
+    { url: 'eff.org/action',             desc: 'Push for reform'           },
+    { url: 'senate.gov/senators',        desc: 'Contact your senator'      },
+  ];
+
+  const rcW   = (pw - 40 - 5 * 8) / 6;
+  const rcH   = 44;
+  const rcY   = resY + 22;
+
+  resources.forEach((r, i) => {
+    const rcX = px + 20 + i * (rcW + 8);
+    fill(THEME.blueLight); noStroke(); rect(rcX, rcY, rcW, rcH, 4);
+    fill(THEME.blue); textFont(FONT_SANS); textSize(10); textAlign(LEFT);
+    text(r.url, rcX + 7, rcY + 15);
+    fill('#3B82F6'); textSize(9);
+    text(r.desc, rcX + 7, rcY + 30);
+  });
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  const footY = py + ph + 12;
+  fill(THEME.textTertiary); textFont(FONT_SANS); textSize(10); textAlign(LEFT); noStroke();
+  textStyle(ITALIC);
+  text(
+    'Your biometric data from this session has not been stored. You were not asked if it could be. This is how it usually works.',
+    px + 4, footY, pw - 120, 30
+  );
+  textStyle(NORMAL);
+  fill(THEME.textDisabled); textSize(9); textAlign(RIGHT);
+  text('SPACE to reset', W - px - 4, footY + 10);
 }
 
 
@@ -1325,6 +1539,9 @@ function drawHUD() {
 // =============================================================================
 
 function drawSpotterOverlay() {
+  // Hide camera on debrief — it covers the resources and closing message
+  if (state === STATE.DEBRIEF) return;
+
   const vx = 10, vy = height - 188, vw = 213, vh = 160;
 
   push(); translate(vx + vw, vy); scale(-1, 1);
@@ -1386,7 +1603,7 @@ function keyPressed() {
         break;
       case STATE.CONSEQUENCE:
         if (session.interceptCount >= 10) {
-          state = STATE.DEBRIEF;
+          goToDebrief();
         } else {
           spawnSignal(); state = STATE.HUNT;
         }
@@ -1395,7 +1612,7 @@ function keyPressed() {
         session = {
           interceptCount: 0, retainCount: 0, purgeCount: 0,
           surveillanceIndex: 0, consecutivePurges: 0,
-          contractorScore: 100, lastVote: null,
+          contractorScore: 100, lastVote: null, terminated: false,
         };
         spawnSignal(); state = STATE.HUNT; break;
     }
